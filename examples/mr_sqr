@@ -1,0 +1,52 @@
+#!/usr/bin/env python
+# _*_ coding: utf-8
+
+
+import argparse
+import shlex
+import subprocess as sp
+import sys
+
+
+from mr_pool import CPU_COUNT, MRPool
+
+
+def to_num(s):
+    try:
+        return int(s)
+    except ValueError:
+        return float(s)
+
+def sqr(x):
+    return x*x
+
+def collect(lst, x):
+    lst.append(x)
+    return lst
+
+
+if __name__ == "__main__":
+    DESCRIPTION="Square numbers with multiple processes"
+
+    arg_parser = argparse.ArgumentParser(description=DESCRIPTION)
+
+    arg_parser.add_argument("-w", "--num_workers", type=int, default=CPU_COUNT,
+            help="write verbose output (helps with debugging)")
+
+    arg_parser.add_argument("-f", "--work_file", type=str, default=None,
+            help="optional command to pipe output")
+
+    if len(sys.argv) < 2:
+        sys.argv.append("--help")
+
+    args = arg_parser.parse_args()
+
+    if args.work_file:
+        work_iterator = open(args.work_file, "rt")
+    else:
+        work_iterator = sys.stdin
+    work_to_do = (to_num(line) for line in work_iterator)
+
+    run = MRPool(sqr, collect, num_workers=args.num_workers)
+    result = run(work_to_do, initial=[])
+    print(result)

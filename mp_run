@@ -1,0 +1,94 @@
+#!/usr/bin/env python
+# _*_ coding: utf-8
+
+
+import argparse
+import shlex
+import subprocess as sp
+import sys
+
+
+from mr_pool import CPU_COUNT, MRPool
+
+
+
+def reduce_cmd_cat(accumulator, output):
+    sys.stdout.write(output)
+    return ''
+
+
+
+if __name__ == "__main__":
+    DESCRIPTION="Run a command with multiple processes"
+
+    arg_parser = argparse.ArgumentParser(description=DESCRIPTION)
+
+    arg_parser.add_argument("-w", "--num_workers", type=int, default=CPU_COUNT,
+            help="write verbose output (helps with debugging)")
+
+    arg_parser.add_argument("--post_args", type=str, default='',
+            help="optional args to come after work arg")
+
+    arg_parser.add_argument("-p", "--pipe", type=str, default=None,
+            help="optional command to pipe output")
+    arg_parser.add_argument("-f", "--work_file", type=str, default=None,
+            help="optional command to pipe output")
+
+    arg_parser.add_argument("cmd", type=str,
+            help="command to run")
+    arg_parser.add_argument("cmd_args", nargs='?', type=str,
+            help="optional arguments to pass to cmd.  Multiple args must be one quoted string.")
+
+    if len(sys.argv) < 2:
+        sys.argv.append("--help")
+
+    args = arg_parser.parse_args()
+
+    LST_CMD = [args.cmd] + shlex.split(args.cmd_args)
+    POST_ARGS = shlex.split(args.post_args)
+
+    def run_cmd(cmd):
+        """
+        Run a command, collecting output.  Return a tuple: command exit code,
+        stdout from command, stderr from command
+        """
+        p = sp.Popen(cmd, stdout=sp.PIPE, stderr=sp.PIPE)
+        output, err_output = p.communicate()
+        rc = p.returncode
+        return rc, output, err_output
+
+
+    def map_cmd(work, log=None):
+        cmd = LST_CMD + [work] + POST_ARGS
+        rc, output, err_output = run_cmd(cmd)
+
+        if rc:
+            sys.stderr.write(u"Failed with code {}: {}\n".format(rc, work))
+        if err_output:
+            sys.stderr.write(err_output)
+
+        return output
+
+
+    if args.pipe is None:
+        reduce_cmd = reduce_cmd_cat
+    else:
+        cmd_pipe = shlex.split(args.pipe)
+        def reduce_cmd_any(accumulator, output):
+            rc, output, err_output = run_cmd(cmd_pipe)
+            sys.stdout.write(output)
+            sys.stderr.write(err_output)
+            if rc:
+                sys.exit(rc)
+            return ''
+        reduce_cmd = reduce_cmd_any
+
+
+    if args.work_file:
+        work_iterator = open(args.work_file, "rt")
+    else:
+        work_iterator = sys.stdin
+    work_to_do = (line.strip() for line in work_iterator)
+
+    run = MRPool(map_cmd, reduce_cmd, num_workers=args.num_workers)
+    run(work_to_do)
